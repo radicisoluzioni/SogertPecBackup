@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  pec-archiver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pec-archiver:latest
+    container_name: pec-archiver
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Rome
+      - PEC_ARCHIVE_CONFIG=/app/config/config.yaml
+      # Add PEC passwords as environment variables
+      # - PEC_PASSWORD_1=your_password_here
+      # - PEC_PASSWORD_2=your_password_here
+    volumes:
+      # Configuration file (read-only for security)
+      - ./config:/app/config:ro
+      # Archive storage directory
+      - /srv/pec-archive:/data/pec-archive
+    # Optional: limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
