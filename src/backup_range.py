@@ -74,7 +74,7 @@ def validate_date_range(date_from: datetime, date_to: datetime) -> None:
             f"end date ({date_to.date()})"
         )
     
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.combine(datetime.now().date(), datetime.min.time())
     if date_to > today:
         raise ValueError(
             f"End date ({date_to.date()}) cannot be in the future"
