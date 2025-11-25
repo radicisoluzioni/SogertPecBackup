@@ -1,0 +1,42 @@
+# PEC Archiver Configuration Example
+# Copy this file to config.yaml and customize it
+
+# Base path for archive storage
+base_path: /data/pec-archive
+
+# Number of concurrent workers for processing accounts
+concurrency: 4
+
+# Retry policy for failed operations
+retry_policy:
+  max_retries: 3
+  initial_delay: 5  # seconds
+  backoff_multiplier: 2  # exponential backoff
+
+# IMAP settings
+imap:
+  timeout: 30  # seconds
+  batch_size: 100  # messages per batch
+
+# Scheduler settings
+scheduler:
+  # Time to run the daily archive (HH:MM format)
+  run_time: "01:00"
+
+# PEC accounts to archive
+accounts:
+  - username: account1@pec.it
+    password: ${PEC_PASSWORD_1}  # Use environment variable
+    host: imaps.pec.aruba.it
+    port: 993
+    folders:
+      - INBOX
+      - Posta inviata
+  
+  - username: account2@pec.it
+    password: ${PEC_PASSWORD_2}
+    host: imaps.pec.aruba.it
+    port: 993
+    folders:
+      - INBOX
+      - Posta inviata
