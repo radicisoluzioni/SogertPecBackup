@@ -119,6 +119,8 @@ def main() -> int:
     logger.info(f"API Documentation: http://{args.host}:{args.port}/api/docs")
     
     try:
+        # Using string reference allows uvicorn to properly handle reload mode
+        # This is the recommended approach for production deployment
         uvicorn.run(
             "src.api:app",
             host=args.host,

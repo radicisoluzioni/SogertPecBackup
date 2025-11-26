@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import datetime, date
 from typing import Optional
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -466,14 +465,14 @@ async def download_email(
     Returns:
         The .eml file as download
     """
-    # Validate date format
+    # Validate date format and extract year
     try:
-        datetime.strptime(date_str, "%Y-%m-%d")
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+        year = str(parsed_date.year)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     base_path = get_base_path()
-    year = date_str[:4]
     
     # Sanitize inputs to prevent path traversal
     safe_account = os.path.basename(account)
@@ -526,14 +525,14 @@ async def download_archive(account: str, date_str: str):
     Returns:
         The .tar.gz archive file
     """
-    # Validate date format
+    # Validate date format and extract year
     try:
-        datetime.strptime(date_str, "%Y-%m-%d")
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+        year = str(parsed_date.year)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     base_path = get_base_path()
-    year = date_str[:4]
     
     # Sanitize inputs
     safe_account = os.path.basename(account)
