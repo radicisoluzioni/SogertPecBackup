@@ -7,7 +7,9 @@ with LRU cache management.
 from __future__ import annotations
 
 import os
+import shutil
 import tarfile
+import tempfile
 import logging
 import threading
 import time
@@ -217,7 +219,6 @@ class LRUCache:
             for item in os.listdir(self.cache_path):
                 item_path = os.path.join(self.cache_path, item)
                 if os.path.isdir(item_path):
-                    import shutil
                     shutil.rmtree(item_path, ignore_errors=True)
 
 
@@ -315,7 +316,6 @@ def extract_file_from_archive(
                 return extracted_path
             else:
                 # Write to temp location if cache not available
-                import tempfile
                 temp_dir = tempfile.mkdtemp(prefix='pec_extract_')
                 temp_path = os.path.join(temp_dir, os.path.basename(internal_path))
                 with open(temp_path, 'wb') as out_f:

@@ -15,6 +15,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from .extract import (
+    find_archive_in_directory,
+    extract_file_from_archive,
+    get_internal_path,
+    init_cache,
+    ExtractionError
+)
+
 logger = logging.getLogger(__name__)
 
 # API Application
@@ -138,7 +146,6 @@ def set_cache_config(config: dict) -> None:
     
     # Initialize the cache if enabled
     if config.get('enabled', True):
-        from .extract import init_cache
         init_cache(
             cache_path=config.get('path', '/tmp/pec-archive-cache'),
             max_size_mb=config.get('max_size_mb', 500)
@@ -552,13 +559,6 @@ async def download_email(
         )
     
     # File not found on filesystem, try to extract from archive
-    from .extract import (
-        find_archive_in_directory,
-        extract_file_from_archive,
-        get_internal_path,
-        ExtractionError
-    )
-    
     # Find archive in date directory
     archive_path = find_archive_in_directory(abs_date_path)
     
