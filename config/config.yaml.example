@@ -50,6 +50,20 @@ notifications:
     sender: pec-archiver@example.com  # Optional, defaults to username
     use_tls: true  # Use STARTTLS (port 587), set false for SSL (port 465)
 
+# Cache settings for extracted emails from archives
+# When downloading single emails via API, they are extracted from
+# compressed archives and cached locally using LRU (Least Recently Used) strategy
+cache:
+  # Enable or disable the extraction cache (true/false)
+  enabled: true
+  
+  # Maximum cache size in megabytes
+  # When exceeded, oldest files are removed automatically
+  max_size_mb: 500
+  
+  # Directory path for cached extracted files
+  path: /tmp/pec-archive-cache
+
 # PEC accounts to archive
 accounts:
   - username: account1@pec.it

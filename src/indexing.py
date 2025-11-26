@@ -70,7 +70,9 @@ def extract_message_info(
     message: Message,
     uid: str,
     folder: str,
-    filepath: str
+    filepath: str,
+    archive_name: str = '',
+    archive_path_internal: str = ''
 ) -> dict:
     """
     Extract metadata from an email message.
@@ -80,6 +82,8 @@ def extract_message_info(
         uid: Message UID
         folder: IMAP folder name
         filepath: Path to saved .eml file
+        archive_name: Name of the containing archive file (e.g., archive-account-2024-01-15.tar.gz)
+        archive_path_internal: Path inside the archive to the email file
     
     Returns:
         Dictionary with message metadata
@@ -97,7 +101,9 @@ def extract_message_info(
         'cc': decode_email_header(message.get('Cc')),
         'date': date.isoformat() if date else '',
         'message_id': message.get('Message-ID', ''),
-        'size': os.path.getsize(filepath) if os.path.exists(filepath) else 0
+        'size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+        'archive_name': archive_name,
+        'archive_path_internal': archive_path_internal
     }
 
 
@@ -125,14 +131,16 @@ class Indexer:
     Creates index.csv and index.json files.
     """
     
-    def __init__(self, account_path: str):
+    def __init__(self, account_path: str, archive_name: str = ''):
         """
         Initialize indexer.
         
         Args:
             account_path: Path to account's date directory
+            archive_name: Name of the archive file (e.g., archive-account-2024-01-15.tar.gz)
         """
         self.account_path = account_path
+        self.archive_name = archive_name
         self.messages = []
     
     def add_message(
@@ -140,7 +148,8 @@ class Indexer:
         message: Message,
         uid: str,
         folder: str,
-        filepath: str
+        filepath: str,
+        archive_path_internal: str = ''
     ) -> None:
         """
         Add a message to the index.
@@ -150,9 +159,35 @@ class Indexer:
             uid: Message UID
             folder: IMAP folder name
             filepath: Path to saved .eml file
+            archive_path_internal: Path inside the archive to this file
         """
-        info = extract_message_info(message, uid, folder, filepath)
+        # Calculate archive_path_internal from filepath if not provided
+        if not archive_path_internal and self.archive_name:
+            # Calculate relative path from account_path
+            rel_path = os.path.relpath(filepath, self.account_path)
+            archive_path_internal = rel_path
+        
+        info = extract_message_info(
+            message, uid, folder, filepath,
+            archive_name=self.archive_name,
+            archive_path_internal=archive_path_internal
+        )
         self.messages.append(info)
+    
+    def set_archive_name(self, archive_name: str) -> None:
+        """
+        Set the archive name and update all messages with archive info.
+        
+        Args:
+            archive_name: Name of the archive file
+        """
+        self.archive_name = archive_name
+        for msg in self.messages:
+            msg['archive_name'] = archive_name
+            # Calculate archive_path_internal if not already set
+            if not msg.get('archive_path_internal') and msg.get('filepath'):
+                rel_path = os.path.relpath(msg['filepath'], self.account_path)
+                msg['archive_path_internal'] = rel_path
     
     def load_messages_from_files(
         self,
@@ -184,7 +219,7 @@ class Indexer:
         
         fieldnames = [
             'uid', 'folder', 'filename', 'subject', 'from', 'to',
-            'cc', 'date', 'message_id', 'size'
+            'cc', 'date', 'message_id', 'size', 'archive_name', 'archive_path_internal'
         ]
         
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:

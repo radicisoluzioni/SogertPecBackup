@@ -5,13 +5,14 @@ Tests for REST API module.
 import os
 import json
 import tempfile
+import tarfile
 import pytest
 from datetime import datetime
 from email.message import EmailMessage
 
 from fastapi.testclient import TestClient
 
-from src.api import app, set_base_path, get_base_path
+from src.api import app, set_base_path, get_base_path, set_cache_config
 from src.indexing import Indexer
 from src.storage import Storage
 
@@ -252,6 +253,106 @@ class TestDownloadEndpoint:
         )
         # Should return 404 (file not found) or 400 (invalid file type)
         assert response.status_code in [400, 404]
+
+
+class TestArchiveExtraction:
+    """Tests for extracting emails from compressed archives."""
+    
+    @pytest.fixture
+    def archive_only_setup(self):
+        """Create a setup where emails exist only in archive, not on disk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            account_name = "archivetest"
+            date_str = "2024-02-20"
+            year = "2024"
+            
+            storage = Storage(tmpdir)
+            target_date = datetime(2024, 2, 20)
+            
+            # Create directory structure
+            folders = ["INBOX"]
+            account_path = storage.create_directory_structure(
+                f"{account_name}@pec.it", target_date, folders
+            )
+            
+            # Create test message
+            msg = EmailMessage()
+            msg["Subject"] = "Archived Email"
+            msg["From"] = "sender@example.com"
+            msg["To"] = "recipient@example.com"
+            msg["Date"] = "Tue, 20 Feb 2024 10:00:00 +0100"
+            msg["Message-ID"] = "<archive1@example.com>"
+            msg.set_content("This is an archived email body")
+            
+            filepath = storage.save_eml(
+                f"{account_name}@pec.it",
+                target_date,
+                "INBOX",
+                "100",
+                msg,
+                msg.as_bytes()
+            )
+            
+            # Create archive name and set it on indexer
+            archive_name = f"archive-{account_name}-{date_str}.tar.gz"
+            
+            # Create index with archive info
+            indexer = Indexer(account_path, archive_name=archive_name)
+            indexer.add_message(msg, "100", "INBOX", filepath)
+            indexer.generate_json()
+            
+            # Create archive
+            archive_path = os.path.join(account_path, archive_name)
+            with tarfile.open(archive_path, 'w:gz') as tar:
+                inbox_dir = os.path.join(account_path, "INBOX")
+                tar.add(inbox_dir, arcname="INBOX")
+            
+            # Save email filename before deleting
+            email_filename = os.path.basename(filepath)
+            
+            # Remove the original email file (keep only in archive)
+            os.remove(filepath)
+            
+            # Setup cache
+            cache_dir = os.path.join(tmpdir, "cache")
+            os.makedirs(cache_dir)
+            set_cache_config({
+                'enabled': True,
+                'max_size_mb': 10,
+                'path': cache_dir
+            })
+            
+            set_base_path(tmpdir)
+            
+            yield tmpdir, account_name, date_str, email_filename
+    
+    def test_download_from_archive(self, archive_only_setup):
+        """Test downloading email that's only in archive (not on disk)."""
+        tmpdir, account_name, date_str, email_filename = archive_only_setup
+        
+        client = TestClient(app)
+        
+        response = client.get(
+            f"/api/v1/accounts/{account_name}/emails/{date_str}/INBOX/{email_filename}"
+        )
+        
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "message/rfc822"
+        # Verify content
+        assert b"Archived Email" in response.content
+    
+    def test_download_nonexistent_from_archive(self, archive_only_setup):
+        """Test downloading email that doesn't exist in archive."""
+        tmpdir, account_name, date_str, _ = archive_only_setup
+        
+        client = TestClient(app)
+        
+        response = client.get(
+            f"/api/v1/accounts/{account_name}/emails/{date_str}/INBOX/nonexistent.eml"
+        )
+        
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
 
 class TestPathTraversal:

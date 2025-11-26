@@ -122,6 +122,13 @@ def validate_config(config: dict) -> None:
         'enabled': False
     })
     
+    # Set default cache config for extracted emails
+    config.setdefault('cache', {
+        'enabled': True,
+        'max_size_mb': 500,  # Maximum cache size in MB
+        'path': '/tmp/pec-archive-cache'  # Cache directory path
+    })
+    
     # Validate notifications if enabled
     notifications = config.get('notifications', {})
     if notifications.get('enabled', False):
@@ -154,6 +161,11 @@ def get_default_config() -> dict:
         },
         'notifications': {
             'enabled': False
+        },
+        'cache': {
+            'enabled': True,
+            'max_size_mb': 500,
+            'path': '/tmp/pec-archive-cache'
         },
         'accounts': []
     }
