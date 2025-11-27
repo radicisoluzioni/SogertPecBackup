@@ -109,6 +109,12 @@ notifications:
     password: ${SMTP_PASSWORD}
     use_tls: true
 
+# Cache per estrazione email da archivi (opzionale)
+cache:
+  enabled: true
+  max_size_mb: 500      # Dimensione massima cache in MB
+  path: /tmp/pec-archive-cache  # Directory per file temporanei estratti
+
 # Account PEC da archiviare
 accounts:
   - username: account1@pec.it
@@ -254,8 +260,9 @@ docker compose exec pec-archiver python -m src.backup_range \
 | `worker.py` | Processa singoli account PEC |
 | `imap_client.py` | Gestisce connessioni IMAP con retry |
 | `storage.py` | Salva messaggi e gestisce directory |
-| `indexing.py` | Genera indici CSV e JSON |
+| `indexing.py` | Genera indici CSV e JSON con riferimenti archivio |
 | `compression.py` | Crea archivi tar.gz e digest SHA256 |
+| `extract.py` | Estrazione on-demand da archivi con cache LRU |
 | `reporting.py` | Genera summary.json e report aggregati |
 | `notifications.py` | Invia notifiche email con report e alert |
 | `config.py` | Carica e valida configurazione YAML |
@@ -324,6 +331,46 @@ curl -O "http://localhost:8000/api/v1/accounts/account1/emails/2024-01-15/INBOX/
 
 # Download archivio compresso
 curl -O "http://localhost:8000/api/v1/accounts/account1/archive/2024-01-15"
+```
+
+### Estrazione Automatica da Archivio
+
+Quando si richiede il download di una singola email tramite l'endpoint `/api/v1/accounts/{account}/emails/{date}/{folder}/{filename}`, il sistema gestisce automaticamente l'estrazione:
+
+1. **File su disco**: Se il file `.eml` è presente sul filesystem, viene servito direttamente
+2. **File in archivio**: Se il file non è presente ma esiste un archivio `.tar.gz`, l'email viene estratta on-demand
+3. **Cache LRU**: I file estratti vengono salvati in una cache locale con strategia LRU (Least Recently Used)
+
+#### Configurazione Cache
+
+```yaml
+cache:
+  enabled: true           # Abilita/disabilita la cache
+  max_size_mb: 500        # Limite massimo della cache in MB
+  path: /tmp/pec-archive-cache  # Directory per i file estratti
+```
+
+Quando la cache raggiunge il limite configurato, i file meno recentemente acceduti vengono automaticamente rimossi per fare spazio a nuove estrazioni.
+
+### Indice con Riferimenti Archivio
+
+L'indice (`index.json` e `index.csv`) include per ogni email:
+- `archive_name`: Nome del file archivio contenente l'email
+- `archive_path_internal`: Percorso relativo dell'email all'interno dell'archivio
+
+Esempio di entry in `index.json`:
+```json
+{
+  "uid": "123",
+  "folder": "INBOX",
+  "filename": "123_subject.eml",
+  "subject": "Oggetto email",
+  "from": "mittente@pec.it",
+  "to": "destinatario@pec.it",
+  "date": "2024-01-15T10:30:00+01:00",
+  "archive_name": "archive-account1-2024-01-15.tar.gz",
+  "archive_path_internal": "INBOX/123_subject.eml"
+}
 ```
 
 ## 📬 Notifiche Email

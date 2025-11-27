@@ -15,6 +15,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from .extract import (
+    find_archive_in_directory,
+    extract_file_from_archive,
+    get_internal_path,
+    init_cache,
+    ExtractionError
+)
+
 logger = logging.getLogger(__name__)
 
 # API Application
@@ -42,6 +50,8 @@ class EmailInfo(BaseModel):
     date: str
     message_id: str
     size: int
+    archive_name: Optional[str] = ""
+    archive_path_internal: Optional[str] = ""
 
     model_config = {"populate_by_name": True}
 
@@ -100,6 +110,13 @@ class HealthResponse(BaseModel):
 # Global variable for archive base path
 _base_path: Optional[str] = None
 
+# Global cache configuration
+_cache_config: dict = {
+    'enabled': True,
+    'max_size_mb': 500,
+    'path': '/tmp/pec-archive-cache'
+}
+
 
 def set_base_path(path: str) -> None:
     """Set the base path for the archive."""
@@ -112,6 +129,32 @@ def get_base_path() -> str:
     if _base_path:
         return _base_path
     return os.environ.get("PEC_ARCHIVE_BASE_PATH", "/data/pec-archive")
+
+
+def set_cache_config(config: dict) -> None:
+    """
+    Set cache configuration.
+    
+    Args:
+        config: Cache configuration dictionary with keys:
+            - enabled: Whether caching is enabled
+            - max_size_mb: Maximum cache size in MB
+            - path: Cache directory path
+    """
+    global _cache_config
+    _cache_config = config
+    
+    # Initialize the cache if enabled
+    if config.get('enabled', True):
+        init_cache(
+            cache_path=config.get('path', '/tmp/pec-archive-cache'),
+            max_size_mb=config.get('max_size_mb', 500)
+        )
+
+
+def get_cache_config() -> dict:
+    """Get the cache configuration."""
+    return _cache_config
 
 
 def load_index_json(account_path: str, date_dir: str) -> list[dict]:
@@ -456,6 +499,9 @@ async def download_email(
     """
     Download a specific email file (.eml).
     
+    If the email file is not present on the filesystem, it will be
+    extracted from the compressed archive (.tar.gz) and cached locally.
+    
     Args:
         account: Account name
         date_str: Date in YYYY-MM-DD format
@@ -480,11 +526,18 @@ async def download_email(
     safe_filename = os.path.basename(filename)
     safe_date = os.path.basename(date_str)
     
-    file_path = os.path.join(
+    if not safe_filename.endswith(".eml"):
+        raise HTTPException(status_code=400, detail="Only .eml files can be downloaded")
+    
+    date_path = os.path.join(
         base_path,
         safe_account,
         year,
-        safe_date,
+        safe_date
+    )
+    
+    file_path = os.path.join(
+        date_path,
         safe_folder,
         safe_filename
     )
@@ -492,21 +545,50 @@ async def download_email(
     # Ensure the path is within the base path
     abs_file_path = os.path.abspath(file_path)
     abs_base_path = os.path.abspath(base_path)
+    abs_date_path = os.path.abspath(date_path)
     
     if not abs_file_path.startswith(abs_base_path):
         raise HTTPException(status_code=400, detail="Invalid path")
     
-    if not os.path.exists(abs_file_path):
-        raise HTTPException(status_code=404, detail="Email file not found")
+    # Check if file exists on filesystem
+    if os.path.exists(abs_file_path):
+        return FileResponse(
+            path=abs_file_path,
+            filename=safe_filename,
+            media_type="message/rfc822"
+        )
     
-    if not abs_file_path.endswith(".eml"):
-        raise HTTPException(status_code=400, detail="Only .eml files can be downloaded")
+    # File not found on filesystem, try to extract from archive
+    # Find archive in date directory
+    archive_path = find_archive_in_directory(abs_date_path)
     
-    return FileResponse(
-        path=abs_file_path,
-        filename=safe_filename,
-        media_type="message/rfc822"
-    )
+    if not archive_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Email file not found and no archive available"
+        )
+    
+    # Extract file from archive
+    try:
+        internal_path = get_internal_path(safe_folder, safe_filename)
+        cache_config = get_cache_config()
+        extracted_path = extract_file_from_archive(
+            archive_path,
+            internal_path,
+            use_cache=cache_config.get('enabled', True)
+        )
+        
+        return FileResponse(
+            path=extracted_path,
+            filename=safe_filename,
+            media_type="message/rfc822"
+        )
+    except ExtractionError as e:
+        logger.error(f"Failed to extract email from archive: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Email file not found in archive: {str(e)}"
+        )
 
 
 @app.get(
@@ -563,16 +645,27 @@ async def download_archive(account: str, date_str: str):
     raise HTTPException(status_code=404, detail="Archive file not found")
 
 
-def create_app(base_path: Optional[str] = None) -> FastAPI:
+def create_app(
+    base_path: Optional[str] = None,
+    cache_config: Optional[dict] = None
+) -> FastAPI:
     """
     Create and configure the FastAPI application.
     
     Args:
         base_path: Optional base path for the archive
+        cache_config: Optional cache configuration with keys:
+            - enabled: Whether caching is enabled (default: True)
+            - max_size_mb: Maximum cache size in MB (default: 500)
+            - path: Cache directory path (default: /tmp/pec-archive-cache)
     
     Returns:
         Configured FastAPI application
     """
     if base_path:
         set_base_path(base_path)
+    
+    if cache_config:
+        set_cache_config(cache_config)
+    
     return app
